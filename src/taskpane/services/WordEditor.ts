@@ -1,5 +1,7 @@
 /* global Word */
 
+import { PlatformDetector } from '../utils/PlatformDetector';
+
 export interface EditOperation {
   type: 'insert' | 'replace' | 'format' | 'delete' | 'addParagraph';
   content?: string;
@@ -20,17 +22,32 @@ export class WordEditor {
    * 获取当前文档的全部内容
    */
   static async getDocumentContent(): Promise<string> {
+    // 检查平台兼容性
+    if (!PlatformDetector.isOfficeJSAvailable() && PlatformDetector.isWPS()) {
+      // WPS可能使用不同的API，这里尝试兼容处理
+      console.warn('WPS环境：尝试使用Office.js API');
+    }
+
     return new Promise((resolve, reject) => {
-      Word.run(async (context) => {
-        try {
-          const body = context.document.body;
-          body.load('text');
-          await context.sync();
-          resolve(body.text);
-        } catch (error) {
-          reject(error);
+      try {
+        if (typeof Word === 'undefined') {
+          reject(new Error('Word API不可用，请确保在Word或WPS环境中运行'));
+          return;
         }
-      });
+
+        Word.run(async (context) => {
+          try {
+            const body = context.document.body;
+            body.load('text');
+            await context.sync();
+            resolve(body.text);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 
@@ -39,17 +56,26 @@ export class WordEditor {
    */
   static async applyEdits(edits: EditOperation[]): Promise<void> {
     return new Promise((resolve, reject) => {
-      Word.run(async (context) => {
-        try {
-          for (const edit of edits) {
-            await this.applyEdit(context, edit);
-          }
-          await context.sync();
-          resolve();
-        } catch (error) {
-          reject(error);
+      try {
+        if (typeof Word === 'undefined') {
+          reject(new Error('Word API不可用，请确保在Word或WPS环境中运行'));
+          return;
         }
-      });
+
+        Word.run(async (context) => {
+          try {
+            for (const edit of edits) {
+              await this.applyEdit(context, edit);
+            }
+            await context.sync();
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        });
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 

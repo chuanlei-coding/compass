@@ -8,8 +8,8 @@
   <Version>1.0.0.0</Version>
   <ProviderName>Your Company</ProviderName>
   <DefaultLocale>zh-CN</DefaultLocale>
-  <DisplayName DefaultValue="Word AI助手" />
-  <Description DefaultValue="通过AI对话窗口编辑和管理Word文档" />
+  <DisplayName DefaultValue="Word/WPS AI助手" />
+  <Description DefaultValue="通过AI对话窗口编辑和管理Word/WPS文档，支持Microsoft Word和WPS Office" />
   <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://www.contoso.com/help" />
@@ -17,6 +17,7 @@
     <AppDomain>https://localhost:3000</AppDomain>
   </AppDomains>
   <Hosts>
+    <!-- 支持Microsoft Word和WPS Office (WPS使用相同的Document Host) -->
     <Host Name="Document"/>
   </Hosts>
   <DefaultSettings>

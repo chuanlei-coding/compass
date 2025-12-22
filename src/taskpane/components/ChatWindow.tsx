@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { WordEditor } from '../services/WordEditor';
 import { AIService } from '../services/AIService';
 import { SettingsPanel } from './SettingsPanel';
+import { PlatformDetector } from '../utils/PlatformDetector';
 
 interface Message {
   id: string;
@@ -37,6 +38,12 @@ export const ChatWindow: React.FC = () => {
     }
     if (savedUrl) {
       AIService.setApiUrl(savedUrl);
+    }
+
+    // 检测并显示平台信息
+    const platform = PlatformDetector.detect();
+    if (platform !== 'unknown') {
+      console.log(`运行平台: ${PlatformDetector.getPlatformName()}`);
     }
   }, []);
 
@@ -111,22 +118,26 @@ export const ChatWindow: React.FC = () => {
   return (
     <div className="chat-container">
       <div className="chat-header">
-        <span>Word AI助手</span>
-        <button
-          onClick={() => setShowSettings(true)}
-          style={{
-            float: 'right',
-            background: 'rgba(255, 255, 255, 0.2)',
-            border: 'none',
-            color: 'white',
-            padding: '4px 12px',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '12px',
-          }}
-        >
-          设置
-        </button>
+        <span>Word/WPS AI助手</span>
+        <div style={{ float: 'right', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '11px', opacity: 0.8 }}>
+            {PlatformDetector.getPlatformName()}
+          </span>
+          <button
+            onClick={() => setShowSettings(true)}
+            style={{
+              background: 'rgba(255, 255, 255, 0.2)',
+              border: 'none',
+              color: 'white',
+              padding: '4px 12px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '12px',
+            }}
+          >
+            设置
+          </button>
+        </div>
       </div>
       
       <div className="chat-messages">

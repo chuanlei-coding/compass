@@ -1,6 +1,6 @@
-# Word AI助手插件
+# Word/WPS AI助手插件
 
-一个功能强大的Word插件，通过侧边栏对话窗口，使用AI能力帮助您编辑和管理Word文档。
+一个功能强大的Office插件，支持Microsoft Word和WPS Office，通过侧边栏对话窗口，使用AI能力帮助您编辑和管理文档。
 
 ## 功能特性
 
@@ -21,7 +21,7 @@
 ### 前置要求
 
 - Node.js 16+ 和 npm
-- Microsoft Word (Office 365 或 Office 2016+)
+- Microsoft Word (Office 365 或 Office 2016+) **或** WPS Office (支持Office.js的版本)
 - 开发证书（用于本地HTTPS）
 
 ### 安装步骤
@@ -53,10 +53,19 @@
    npm run setup-certs
    ```
 
-4. **加载插件到Word**
+4. **加载插件**
+
+   **Microsoft Word:**
    - 打开Word
    - 转到"插入" > "我的加载项" > "上传我的加载项"
    - 选择项目根目录下的 `manifest.xml` 文件
+
+   **WPS Office:**
+   - 打开WPS Writer
+   - 转到"开发工具" > "加载项" > "添加加载项"
+   - 选择项目根目录下的 `manifest.xml` 文件
+   - 注意：WPS需要支持Office.js API的版本（通常为WPS Office 2019+）
+   - 📖 详细步骤请参考 [WPS加载指南](WPS_LOADING_GUIDE.md)
 
 ## 配置AI服务
 

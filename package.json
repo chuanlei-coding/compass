@@ -1,7 +1,7 @@
 {
   "name": "word-ai-assistant",
   "version": "1.0.0",
-  "description": "Word插件 - AI助手，通过对话窗口编辑Word文档",
+  "description": "Word/WPS插件 - AI助手，通过对话窗口编辑文档，支持Microsoft Word和WPS Office",
   "main": "index.js",
   "scripts": {
     "build": "webpack --mode production",
