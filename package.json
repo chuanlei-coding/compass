@@ -1,0 +1,48 @@
+{
+  "name": "word-ai-assistant",
+  "version": "1.0.0",
+  "description": "Word插件 - AI助手，通过对话窗口编辑Word文档",
+  "main": "index.js",
+  "scripts": {
+    "build": "webpack --mode production",
+    "dev": "node start-dev.js",
+    "dev:simple": "webpack serve --mode development",
+    "start": "npm run dev",
+    "validate": "office-addin-manifest validate manifest.xml",
+    "setup-certs": "npx office-addin-dev-certs install --machine"
+  },
+  "keywords": [
+    "office-addin",
+    "word",
+    "ai",
+    "assistant"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@microsoft/office-js": "^1.1.85",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/office-js": "^1.0.400",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "css-loader": "^6.8.1",
+    "eslint": "^8.45.0",
+    "eslint-plugin-react": "^7.32.2",
+    "html-webpack-plugin": "^5.5.3",
+    "office-addin-dev-certs": "^1.11.3",
+    "office-addin-lint": "^2.2.5",
+    "office-addin-manifest": "^1.12.2",
+    "style-loader": "^3.3.3",
+    "ts-loader": "^9.4.4",
+    "typescript": "^5.1.6",
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^4.15.1"
+  }
+}
+
