@@ -492,6 +492,363 @@ if (button) {
 }
 ```
 
+### 4. 浏览器加载和渲染顺序
+
+理解浏览器如何加载和渲染 HTML/CSS/JavaScript 对于前端开发非常重要。
+
+#### 基本加载顺序
+
+当浏览器访问一个网页时，会按照以下顺序处理：
+
+```
+1. 下载 HTML 文件
+2. 解析 HTML 结构
+3. 下载 CSS 文件（如果遇到 <link> 或 <style>）
+4. 下载 JavaScript 文件（如果遇到 <script>）
+5. 执行 JavaScript 代码
+6. 渲染页面
+```
+
+#### 详细流程
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <!-- 步骤1: HTML 开始解析 -->
+    <meta charset="UTF-8">
+    <title>页面标题</title>
+    
+    <!-- 步骤2: 遇到 CSS，下载并解析（阻塞渲染） -->
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* 内联 CSS 立即解析 */
+        body { margin: 0; }
+    </style>
+</head>
+<body>
+    <!-- 步骤3: HTML 继续解析，构建 DOM -->
+    <h1>标题</h1>
+    
+    <!-- 步骤4: 遇到 JavaScript，下载并执行（默认阻塞 HTML 解析） -->
+    <script src="script.js"></script>
+    
+    <!-- 步骤5: HTML 继续解析 -->
+    <p>段落</p>
+</body>
+</html>
+```
+
+#### HTML 解析过程
+
+**DOM（Document Object Model）构建：**
+
+```
+1. 解析 HTML 文本
+   ↓
+2. 构建 DOM 树（内存中的结构）
+   ↓
+3. DOM 树完成
+```
+
+**示例：**
+```html
+<div>
+  <h1>标题</h1>
+  <p>段落</p>
+</div>
+```
+
+解析后形成 DOM 树：
+```
+Document
+  └── html
+      └── body
+          └── div
+              ├── h1 ("标题")
+              └── p ("段落")
+```
+
+#### CSS 加载和解析
+
+**CSS 的加载方式：**
+
+```html
+<!-- 方式1: 外部 CSS 文件（推荐） -->
+<link rel="stylesheet" href="style.css">
+
+<!-- 方式2: 内联 CSS -->
+<style>
+  body { color: red; }
+</style>
+
+<!-- 方式3: 内联样式（不推荐，难以维护） -->
+<div style="color: blue;">内容</div>
+```
+
+**CSS 解析过程：**
+
+```
+1. 下载 CSS 文件（如果外部文件）
+   ↓
+2. 解析 CSS 规则
+   ↓
+3. 构建 CSSOM（CSS Object Model）
+   ↓
+4. CSSOM 完成
+```
+
+**CSS 阻塞渲染：**
+- 浏览器会等待 CSS 加载完成后再渲染页面
+- 这可以避免"闪烁"（FOUC - Flash of Unstyled Content）
+- 内联 CSS 会立即解析，不阻塞
+
+#### JavaScript 加载和执行
+
+**JavaScript 的位置：**
+
+```html
+<!-- 在 <head> 中 -->
+<head>
+  <script src="script.js"></script>  <!-- 阻塞 HTML 解析 -->
+</head>
+
+<!-- 在 <body> 末尾（推荐） -->
+<body>
+  <!-- HTML 内容 -->
+  <script src="script.js"></script>  <!-- HTML 已解析完成 -->
+</body>
+```
+
+**script 标签的属性：**
+
+```html
+<!-- 默认：阻塞 HTML 解析，下载后立即执行 -->
+<script src="script.js"></script>
+
+<!-- async：异步下载，下载完成后立即执行（可能阻塞渲染） -->
+<script async src="script.js"></script>
+
+<!-- defer：异步下载，等 HTML 解析完成后再执行（推荐） -->
+<script defer src="script.js"></script>
+```
+
+**执行时机对比：**
+
+```
+默认 <script>:
+HTML解析 → 遇到script → 暂停解析 → 下载JS → 执行JS → 继续解析HTML
+
+<script async>:
+HTML解析 → 遇到script → 继续解析 + 异步下载JS → JS下载完成 → 执行JS
+
+<script defer>:
+HTML解析 → 遇到script → 继续解析 + 异步下载JS → HTML解析完成 → 执行JS
+```
+
+#### 渲染过程（Render Pipeline）
+
+完整的渲染流程：
+
+```
+1. HTML 解析 → DOM 树
+2. CSS 解析 → CSSOM 树
+3. DOM + CSSOM → Render Tree（渲染树）
+4. Layout（布局/重排）→ 计算元素位置和大小
+5. Paint（绘制）→ 填充像素
+6. Composite（合成）→ 合成图层显示
+```
+
+**详细说明：**
+
+1. **DOM + CSSOM = Render Tree**
+   - 只包含需要渲染的元素
+   - 隐藏的元素（display: none）不包含在内
+
+2. **Layout（布局/重排/Reflow）**
+   - 计算每个元素的位置和大小
+   - 这是一个昂贵的操作
+
+3. **Paint（绘制）**
+   - 填充像素
+   - 绘制文本、颜色、图片等
+
+4. **Composite（合成）**
+   - 将图层合成最终图像
+   - 显示在屏幕上
+
+#### 关键时间点
+
+```javascript
+// 1. DOMContentLoaded：DOM 解析完成（但不包括图片等资源）
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM 解析完成');
+  // 此时可以安全地操作 DOM 元素
+});
+
+// 2. load：所有资源（包括图片）加载完成
+window.addEventListener('load', () => {
+  console.log('所有资源加载完成');
+});
+
+// 3. beforeunload：页面即将卸载
+window.addEventListener('beforeunload', () => {
+  console.log('页面即将关闭');
+});
+```
+
+#### 阻塞和优化
+
+**阻塞渲染的资源：**
+
+1. **CSS**（默认阻塞渲染）
+   ```html
+   <link rel="stylesheet" href="style.css">  <!-- 阻塞渲染 -->
+   ```
+
+2. **JavaScript**（默认阻塞 HTML 解析）
+   ```html
+   <script src="script.js"></script>  <!-- 阻塞 HTML 解析 -->
+   ```
+
+**优化建议：**
+
+```html
+<!-- ✅ 推荐：CSS 放在 <head> -->
+<head>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<!-- ✅ 推荐：JavaScript 放在 <body> 末尾 -->
+<body>
+  <!-- HTML 内容 -->
+  <script src="script.js"></script>
+</body>
+
+<!-- ✅ 或者使用 defer -->
+<head>
+  <script defer src="script.js"></script>
+</head>
+
+<!-- ✅ 或者使用 async（如果脚本不依赖 DOM） -->
+<script async src="analytics.js"></script>
+```
+
+#### 实际示例
+
+**示例1：阻塞渲染**
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="large-style.css">  <!-- 阻塞：等待下载 -->
+  <script src="heavy-script.js"></script>          <!-- 阻塞：等待下载和执行 -->
+</head>
+<body>
+  <h1>这段内容会延迟显示</h1>
+</body>
+</html>
+```
+
+**示例2：优化后的加载**
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="style.css">  <!-- 必需的 CSS 先加载 -->
+</head>
+<body>
+  <h1>这段内容可以更快显示</h1>
+  
+  <!-- JavaScript 放在最后，使用 defer -->
+  <script defer src="script.js"></script>
+</body>
+</html>
+```
+
+#### 浏览器开发者工具查看
+
+**Network 标签页：**
+- 查看资源加载顺序
+- 查看加载时间
+- 查看阻塞情况
+
+**Performance 标签页：**
+- 查看渲染时间线
+- 查看 JavaScript 执行时间
+- 查看 Layout 和 Paint 时间
+
+**步骤：**
+1. 打开开发者工具（F12）
+2. 切换到 Network 标签页
+3. 刷新页面
+4. 查看资源加载顺序和时间
+
+#### 常见问题
+
+**Q1: 为什么 CSS 要放在 `<head>` 中？**
+
+A: 避免"闪烁"（FOUC）。如果 CSS 在 `<body>` 中，页面可能先显示未样式化的内容，然后再应用样式。
+
+**Q2: 为什么 JavaScript 要放在 `<body>` 末尾？**
+
+A: 避免阻塞 HTML 解析。如果放在 `<head>` 中，浏览器会等待 JavaScript 下载和执行完成才继续解析 HTML。
+
+**Q3: async 和 defer 有什么区别？**
+
+A: 
+- `async`：下载完成后立即执行（可能在任何时候执行）
+- `defer`：等 HTML 解析完成后再执行（按顺序执行）
+
+**Q4: 什么是重排（Reflow）和重绘（Repaint）？**
+
+A:
+- **重排（Reflow/Layout）**：改变元素的位置或大小，需要重新计算布局
+- **重绘（Repaint）**：改变元素的颜色等，不需要重新布局，只需要重新绘制
+
+**性能影响：** 重排 > 重绘 > 合成
+
+#### 最佳实践
+
+1. **CSS 优化**
+   ```html
+   <!-- ✅ 外部 CSS 放在 <head> -->
+   <head>
+     <link rel="stylesheet" href="style.css">
+   </head>
+   
+   <!-- ✅ 关键 CSS 内联 -->
+   <head>
+     <style>
+       /* 首屏关键样式 */
+       body { margin: 0; }
+     </style>
+   </head>
+   ```
+
+2. **JavaScript 优化**
+   ```html
+   <!-- ✅ 使用 defer（推荐） -->
+   <script defer src="script.js"></script>
+   
+   <!-- ✅ 或者放在 <body> 末尾 -->
+   <body>
+     <!-- 内容 -->
+     <script src="script.js"></script>
+   </body>
+   
+   <!-- ✅ 非关键脚本使用 async -->
+   <script async src="analytics.js"></script>
+   ```
+
+3. **避免阻塞**
+   - 减少 CSS 文件大小
+   - 减少 JavaScript 文件大小
+   - 使用代码分割
+   - 懒加载非关键资源
+
 ---
 
 ## CSS 基础

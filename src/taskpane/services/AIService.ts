@@ -50,19 +50,19 @@ export class AIService {
       return this.getMockResponse(userRequest);
     }
 
-    console.log('🚀 开始调用AI API...', {
+    console.log('🚀 开始调用后端API...', {
       apiUrl: this.apiUrl,
       model: this.modelName,
       hasApiKey: !!this.apiKey
     });
 
     try {
-      const prompt = this.buildPrompt(userRequest, documentContent);
-      const response = await this.callAI(prompt);
-      console.log('✅ AI API调用成功');
-      return this.parseAIResponse(response);
+      // 调用后端API
+      const response = await this.callBackendAPI(userRequest, documentContent);
+      console.log('✅ 后端API调用成功');
+      return response;
     } catch (error) {
-      console.error('❌ AI服务调用失败:', error);
+      console.error('❌ 后端API调用失败:', error);
       if (error instanceof Error) {
         console.error('错误详情:', error.message);
       }
@@ -108,60 +108,63 @@ ${documentContent.substring(0, 2000)}${documentContent.length > 2000 ? '...' : '
   }
 
   /**
-   * 调用AI API
+   * 后端API URL
    */
-  private static async callAI(prompt: string): Promise<string> {
-    console.log('📡 发送API请求到:', this.apiUrl);
+  private static getBackendUrl(): string {
+    // 可以从localStorage读取配置，如果没有则使用默认值
+    const savedBackendUrl = localStorage.getItem('backend_url');
+    // 开发环境默认使用本地后端，生产环境需要配置
+    return savedBackendUrl || 'http://localhost:8000';
+  }
+
+  /**
+   * 调用后端API
+   */
+  private static async callBackendAPI(userRequest: string, documentContent: string): Promise<AIResponse> {
+    const backendUrl = this.getBackendUrl();
+    const apiEndpoint = `${backendUrl}/api/process`;
+    
+    console.log('📡 发送请求到后端API:', apiEndpoint);
     
     const requestBody = {
-      model: this.modelName,
-      messages: [
-        {
-          role: 'system',
-          content: '你是一个专业的Word文档编辑助手，能够理解用户需求并生成准确的编辑操作。',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      temperature: 0.7,
-      max_tokens: 1000,
+      user_request: userRequest,
+      document_content: documentContent,
+      api_key: this.apiKey,
+      api_url: this.apiUrl,  // 后端会使用这个URL调用AI API
+      model_name: this.modelName,
     };
 
     console.log('请求参数:', {
+      backendUrl: apiEndpoint,
       model: this.modelName,
-      messagesCount: requestBody.messages.length,
-      promptLength: prompt.length
+      requestLength: userRequest.length,
+      documentLength: documentContent.length
     });
 
-    const response = await fetch(this.apiUrl, {
+    const response = await fetch(apiEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(requestBody),
     });
 
-    console.log('API响应状态:', response.status, response.statusText);
+    console.log('后端API响应状态:', response.status, response.statusText);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('API错误响应:', errorText);
-      throw new Error(`API请求失败 (${response.status}): ${response.statusText}. ${errorText.substring(0, 200)}`);
+      console.error('后端API错误响应:', errorText);
+      throw new Error(`后端API请求失败 (${response.status}): ${response.statusText}. ${errorText.substring(0, 200)}`);
     }
 
     const data = await response.json();
-    console.log('API响应数据:', data);
+    console.log('后端API响应数据:', data);
     
-    const content = data.choices[0]?.message?.content || '';
-    if (!content) {
-      console.warn('⚠️ API响应中没有内容');
-      console.log('完整响应:', JSON.stringify(data, null, 2));
-    }
-    
-    return content;
+    // 后端已经返回了解析后的AIResponse格式
+    return {
+      message: data.message || '操作完成',
+      edits: data.edits || [],
+    };
   }
 
   /**

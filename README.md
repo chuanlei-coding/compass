@@ -11,10 +11,17 @@
 
 ## 技术栈
 
+### 前端
 - **Office.js** - Microsoft Office插件开发框架
 - **React + TypeScript** - 现代化的前端开发
 - **Webpack** - 模块打包工具
-- **AI API** - 支持OpenAI等AI服务（可配置）
+
+### 后端
+- **Python + FastAPI** - 后端API服务
+- **httpx** - HTTP客户端（用于调用AI API）
+
+### AI服务
+- 支持OpenAI等AI服务（可配置）
 
 📖 **学习指南**:
 - [TypeScript 入门指南](TYPESCRIPT_GUIDE.md) - 面向有编程基础的 TypeScript/JavaScript/HTML/CSS 学习指南
@@ -72,29 +79,46 @@
    - 注意：WPS需要支持Office.js API的版本（通常为WPS Office 2019+）
    - 📖 详细步骤请参考 [WPS加载指南](WPS_LOADING_GUIDE.md)
 
-## 配置AI服务
+## 快速开始
 
-### 方式1：通过UI配置（推荐）
+### 1. 安装前端依赖
 
-1. 在插件侧边栏中点击右上角的 **设置** 按钮
-2. 输入您的AI API密钥和API URL
-3. 点击 **保存**
-4. 配置会自动保存到浏览器本地存储
-
-### 方式2：通过代码配置
-
-在 `src/taskpane/services/AIService.ts` 中设置：
-
-```typescript
-AIService.setApiKey('your-api-key-here');
-AIService.setApiUrl('https://api.openai.com/v1/chat/completions');
+```bash
+npm install
 ```
 
-### 使用其他AI服务
+### 2. 安装后端依赖
 
-修改 `AIService.ts` 中的 `apiUrl` 和请求格式以适配其他AI服务（如Azure OpenAI、Claude等）。
+```bash
+cd backend
+pip install -r requirements.txt
+```
 
-**注意**：如果不配置API密钥，插件会使用模拟响应进行测试（功能有限）。
+### 3. 启动后端服务
+
+```bash
+cd backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 4. 启动前端服务
+
+在另一个终端：
+
+```bash
+npm run dev
+```
+
+### 5. 配置AI服务
+
+在插件侧边栏中点击右上角的 **设置** 按钮，输入您的AI API密钥和API URL。
+
+📖 **详细设置指南**: 查看 [BACKEND_SETUP.md](BACKEND_SETUP.md) 了解后端服务的详细配置。
+
+**注意**：
+- 如果不配置API密钥，插件会使用模拟响应进行测试（功能有限）
+- 后端服务默认运行在 `http://localhost:8000`
+- 前端会自动连接到后端服务
 
 ## 使用示例
 
