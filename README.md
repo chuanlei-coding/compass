@@ -18,6 +18,7 @@
 
 📖 **学习指南**:
 - [TypeScript 入门指南](TYPESCRIPT_GUIDE.md) - 面向有编程基础的 TypeScript/JavaScript/HTML/CSS 学习指南
+- [React 入门指南](REACT_GUIDE.md) - React 核心概念和使用方法详解
 - [Office.js 完整指南](OFFICE_JS_GUIDE.md) - Office.js API 详细使用方法
 
 ## 安装和运行
