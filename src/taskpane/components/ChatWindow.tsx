@@ -30,28 +30,40 @@ export const ChatWindow: React.FC = () => {
   }, [messages]);
 
   useEffect(() => {
-    // 初始化时从localStorage加载API密钥
-    const savedKey = localStorage.getItem('ai_api_key');
-    const savedUrl = localStorage.getItem('ai_api_url');
-    if (savedKey) {
-      AIService.setApiKey(savedKey);
-    }
-    if (savedUrl) {
-      AIService.setApiUrl(savedUrl);
-    }
+    try {
+      // 初始化时从localStorage加载API密钥和配置
+      const savedKey = localStorage.getItem('ai_api_key');
+      const savedUrl = localStorage.getItem('ai_api_url');
+      const savedModel = localStorage.getItem('ai_model_name');
+      if (savedKey) {
+        AIService.setApiKey(savedKey);
+      }
+      if (savedUrl) {
+        AIService.setApiUrl(savedUrl);
+      }
+      if (savedModel) {
+        AIService.setModelName(savedModel);
+      }
 
-    // 检测并显示平台信息
-    const platform = PlatformDetector.detect();
-    if (platform !== 'unknown') {
-      console.log(`运行平台: ${PlatformDetector.getPlatformName()}`);
+      // 检测并显示平台信息
+      const platform = PlatformDetector.detect();
+      if (platform !== 'unknown') {
+        console.log(`运行平台: ${PlatformDetector.getPlatformName()}`);
+      }
+    } catch (error) {
+      console.error('初始化配置时出错:', error);
     }
   }, []);
 
   useEffect(() => {
     // 自动调整文本框高度
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    try {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+      }
+    } catch (error) {
+      console.error('调整文本框高度时出错:', error);
     }
   }, [inputValue]);
 
@@ -72,13 +84,22 @@ export const ChatWindow: React.FC = () => {
 
     try {
       // 获取当前文档内容
+      console.log('📄 获取文档内容...');
       const documentContent = await WordEditor.getDocumentContent();
+      console.log('文档内容长度:', documentContent.length);
 
       // 调用AI服务处理用户需求
+      console.log('🤖 调用AI服务处理请求:', userMessage.content);
       const aiResponse = await AIService.processRequest(userMessage.content, documentContent);
+      console.log('AI响应:', aiResponse);
 
       // 执行AI返回的编辑操作
-      await WordEditor.applyEdits(aiResponse.edits);
+      if (aiResponse.edits && aiResponse.edits.length > 0) {
+        console.log('✏️ 执行编辑操作:', aiResponse.edits.length, '个操作');
+        await WordEditor.applyEdits(aiResponse.edits);
+      } else {
+        console.log('⚠️ 没有编辑操作需要执行');
+      }
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),

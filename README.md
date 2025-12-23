@@ -16,6 +16,10 @@
 - **Webpack** - 模块打包工具
 - **AI API** - 支持OpenAI等AI服务（可配置）
 
+📖 **学习指南**:
+- [TypeScript 入门指南](TYPESCRIPT_GUIDE.md) - 面向有编程基础的 TypeScript/JavaScript/HTML/CSS 学习指南
+- [Office.js 完整指南](OFFICE_JS_GUIDE.md) - Office.js API 详细使用方法
+
 ## 安装和运行
 
 ### 前置要求
@@ -115,15 +119,22 @@ compass/
 │   │   ├── taskpane.css      # 样式文件
 │   │   ├── components/
 │   │   │   ├── ChatWindow.tsx    # 对话窗口组件
-│   │   │   └── SettingsPanel.tsx  # 设置面板组件
-│   │   └── services/
-│   │       ├── WordEditor.ts      # Word文档编辑服务
-│   │       └── AIService.ts       # AI服务集成
-│   └── commands/
-│       ├── commands.html     # 命令处理HTML
-│       └── commands.ts       # 命令处理逻辑
+│   │   │   ├── SettingsPanel.tsx  # 设置面板组件
+│   │   │   └── ErrorBoundary.tsx  # 错误边界组件
+│   │   ├── services/
+│   │   │   ├── WordEditor.ts      # Word文档编辑服务
+│   │   │   └── AIService.ts       # AI服务集成
+│   │   └── utils/
+│   │       └── PlatformDetector.ts # 平台检测工具
+│   ├── commands/
+│   │   ├── commands.html     # 命令处理HTML
+│   │   └── commands.ts       # 命令处理逻辑
+│   └── types/
+│       └── office.d.ts       # Office.js类型定义
 └── dist/                     # 构建输出目录
 ```
+
+📖 **详细架构文档**: 请查看 [ARCHITECTURE.md](ARCHITECTURE.md) 了解完整的系统架构设计。
 
 ## 开发
 

@@ -8,6 +8,7 @@ export interface AIResponse {
 export class AIService {
   private static apiKey: string | null = null;
   private static apiUrl: string = 'https://api.openai.com/v1/chat/completions';
+  private static modelName: string = 'gpt-3.5-turbo';
 
   /**
    * 设置API密钥
@@ -24,21 +25,49 @@ export class AIService {
   }
 
   /**
+   * 设置模型名称
+   */
+  static setModelName(model: string): void {
+    this.modelName = model;
+  }
+
+  /**
+   * 获取当前模型名称
+   */
+  static getModelName(): string {
+    return this.modelName;
+  }
+
+  /**
    * 处理用户请求并返回编辑操作
    */
   static async processRequest(userRequest: string, documentContent: string): Promise<AIResponse> {
-    if (!this.apiKey) {
+    // 检查API密钥
+    if (!this.apiKey || this.apiKey.trim() === '') {
+      console.warn('⚠️ API密钥未配置，使用模拟响应');
+      console.log('提示：请在设置中配置API密钥以使用真实的AI服务');
       // 如果没有配置API密钥，使用模拟响应
       return this.getMockResponse(userRequest);
     }
 
+    console.log('🚀 开始调用AI API...', {
+      apiUrl: this.apiUrl,
+      model: this.modelName,
+      hasApiKey: !!this.apiKey
+    });
+
     try {
       const prompt = this.buildPrompt(userRequest, documentContent);
       const response = await this.callAI(prompt);
+      console.log('✅ AI API调用成功');
       return this.parseAIResponse(response);
     } catch (error) {
-      console.error('AI服务调用失败:', error);
+      console.error('❌ AI服务调用失败:', error);
+      if (error instanceof Error) {
+        console.error('错误详情:', error.message);
+      }
       // 降级到模拟响应
+      console.warn('⚠️ 降级到模拟响应');
       return this.getMockResponse(userRequest);
     }
   }
@@ -82,35 +111,57 @@ ${documentContent.substring(0, 2000)}${documentContent.length > 2000 ? '...' : '
    * 调用AI API
    */
   private static async callAI(prompt: string): Promise<string> {
+    console.log('📡 发送API请求到:', this.apiUrl);
+    
+    const requestBody = {
+      model: this.modelName,
+      messages: [
+        {
+          role: 'system',
+          content: '你是一个专业的Word文档编辑助手，能够理解用户需求并生成准确的编辑操作。',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 1000,
+    };
+
+    console.log('请求参数:', {
+      model: this.modelName,
+      messagesCount: requestBody.messages.length,
+      promptLength: prompt.length
+    });
+
     const response = await fetch(this.apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.apiKey}`,
       },
-      body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content: '你是一个专业的Word文档编辑助手，能够理解用户需求并生成准确的编辑操作。',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 1000,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
+    console.log('API响应状态:', response.status, response.statusText);
+
     if (!response.ok) {
-      throw new Error(`API请求失败: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error('API错误响应:', errorText);
+      throw new Error(`API请求失败 (${response.status}): ${response.statusText}. ${errorText.substring(0, 200)}`);
     }
 
     const data = await response.json();
-    return data.choices[0]?.message?.content || '';
+    console.log('API响应数据:', data);
+    
+    const content = data.choices[0]?.message?.content || '';
+    if (!content) {
+      console.warn('⚠️ API响应中没有内容');
+      console.log('完整响应:', JSON.stringify(data, null, 2));
+    }
+    
+    return content;
   }
 
   /**

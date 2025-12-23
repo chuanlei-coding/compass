@@ -10,6 +10,7 @@ interface SettingsPanelProps {
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onApiKeySet }) => {
   const [apiKey, setApiKey] = useState('');
   const [apiUrl, setApiUrl] = useState('https://api.openai.com/v1/chat/completions');
+  const [modelName, setModelName] = useState('gpt-3.5-turbo');
   const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
@@ -19,6 +20,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onApiKeyS
     if (apiUrl.trim()) {
       AIService.setApiUrl(apiUrl.trim());
     }
+    if (modelName.trim()) {
+      AIService.setModelName(modelName.trim());
+    }
     
     // 保存到localStorage
     if (apiKey.trim()) {
@@ -26,6 +30,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onApiKeyS
     }
     if (apiUrl.trim()) {
       localStorage.setItem('ai_api_url', apiUrl.trim());
+    }
+    if (modelName.trim()) {
+      localStorage.setItem('ai_model_name', modelName.trim());
     }
     
     setSaved(true);
@@ -40,6 +47,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onApiKeyS
     // 从localStorage加载已保存的配置
     const savedKey = localStorage.getItem('ai_api_key');
     const savedUrl = localStorage.getItem('ai_api_url');
+    const savedModel = localStorage.getItem('ai_model_name');
     if (savedKey) {
       setApiKey(savedKey);
       AIService.setApiKey(savedKey);
@@ -47,6 +55,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onApiKeyS
     if (savedUrl) {
       setApiUrl(savedUrl);
       AIService.setApiUrl(savedUrl);
+    }
+    if (savedModel) {
+      setModelName(savedModel);
+      AIService.setModelName(savedModel);
     }
   }, []);
 
@@ -95,7 +107,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onApiKeyS
           </p>
         </div>
 
-        <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600 }}>
             API URL
           </label>
@@ -112,6 +124,28 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onApiKeyS
               fontSize: '14px',
             }}
           />
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600 }}>
+            模型名称
+          </label>
+          <input
+            type="text"
+            value={modelName}
+            onChange={(e) => setModelName(e.target.value)}
+            placeholder="例如: gpt-3.5-turbo, gpt-4, claude-3-opus 等"
+            style={{
+              width: '100%',
+              padding: '10px',
+              border: '1px solid #e0e0e0',
+              borderRadius: '4px',
+              fontSize: '14px',
+            }}
+          />
+          <p style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+            根据您使用的AI服务选择对应的模型名称
+          </p>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
