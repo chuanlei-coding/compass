@@ -67,6 +67,15 @@ module.exports = {
     headers: {
       'Access-Control-Allow-Origin': '*',
     },
+    // 代理后端API请求，解决混合内容问题（HTTPS前端访问HTTP后端）
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false, // 允许代理到HTTP后端
+        logLevel: 'debug',
+      },
+    },
     client: {
       overlay: {
         errors: true,
