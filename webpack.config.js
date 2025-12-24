@@ -9,13 +9,26 @@ try {
   const keyPath = path.join(process.env.HOME || process.env.USERPROFILE, '.office-addin-dev-certs', 'localhost.key');
   
   if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
-    httpsOptions = {
-      cert: fs.readFileSync(certPath),
-      key: fs.readFileSync(keyPath),
-    };
+    // 检查文件是否可读
+    try {
+      fs.accessSync(certPath, fs.constants.R_OK);
+      fs.accessSync(keyPath, fs.constants.R_OK);
+      
+      httpsOptions = {
+        cert: fs.readFileSync(certPath),
+        key: fs.readFileSync(keyPath),
+      };
+      console.log('✅ 成功加载开发证书');
+    } catch (accessError) {
+      console.warn('⚠️  证书文件存在但无法读取，将使用自签名证书:', accessError.message);
+      console.warn('   提示: 请检查证书文件权限或重新生成证书');
+    }
+  } else {
+    console.warn('⚠️  未找到开发证书，将使用webpack-dev-server的自签名证书');
+    console.warn('   提示: 运行 "npm run setup-certs" 生成开发证书');
   }
 } catch (error) {
-  console.warn('无法加载开发证书，将使用HTTP（Office插件需要HTTPS）:', error.message);
+  console.warn('⚠️  无法加载开发证书，将使用自签名证书:', error.message);
 }
 
 module.exports = {
@@ -62,7 +75,11 @@ module.exports = {
     },
     port: 3000,
     hot: true,
-    https: httpsOptions || true, // 使用HTTPS（Office插件要求）
+    // 使用新的 server 选项（webpack-dev-server 4.x）
+    server: httpsOptions ? {
+      type: 'https',
+      options: httpsOptions,
+    } : 'https', // 如果证书不可用，使用自签名证书
     allowedHosts: 'all',
     headers: {
       'Access-Control-Allow-Origin': '*',

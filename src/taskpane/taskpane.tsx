@@ -8,13 +8,17 @@ import './taskpane.css';
 /* global Office */
 
 // 支持Word和WPS
-// 添加全局错误处理
+// 添加全局错误处理（在捕获阶段，最早处理）
 window.addEventListener('error', (event) => {
   // 过滤跨域脚本错误（Script error），这些错误通常来自外部脚本且无法获取详细信息
   if (event.message === 'Script error.' && !event.filename && event.lineno === 0) {
     // 这是跨域脚本错误，通常可以安全忽略
-    console.warn('⚠️ 检测到跨域脚本错误（通常来自外部脚本，可安全忽略）');
-    return;
+    // 阻止事件传播，避免被 Office.js 运行时记录为严重错误
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    console.warn('⚠️ 检测到跨域脚本错误（通常来自外部脚本，已阻止传播）');
+    return false; // 返回 false 表示已处理，不需要默认行为
   }
   
   // 记录真实的错误
@@ -26,9 +30,18 @@ window.addEventListener('error', (event) => {
     colno: event.colno || '未知',
     stack: event.error?.stack || '无堆栈信息'
   });
-}, true); // 使用捕获阶段，可以捕获更多错误
+}, true); // 使用捕获阶段，可以最早捕获错误
 
 window.addEventListener('unhandledrejection', (event) => {
+  // 检查是否是跨域相关的错误
+  const reason = event.reason;
+  if (reason && typeof reason === 'object' && reason.message === 'Script error.') {
+    // 阻止跨域脚本错误的 Promise 拒绝传播
+    event.preventDefault();
+    console.warn('⚠️ 检测到跨域脚本错误的Promise拒绝（已阻止传播）');
+    return;
+  }
+  
   console.error('❌ 未处理的Promise拒绝:', {
     reason: event.reason,
     promise: event.promise,

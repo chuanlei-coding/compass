@@ -15,8 +15,27 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # 配置日志
-logging.basicConfig(level=logging.INFO)
+import sys
+from datetime import datetime
+
+# 创建日志目录
+log_dir = os.path.join(os.path.dirname(__file__), 'logs')
+os.makedirs(log_dir, exist_ok=True)
+
+# 日志文件名（带日期）
+log_file = os.path.join(log_dir, f'backend_{datetime.now().strftime("%Y%m%d")}.log')
+
+# 配置日志：同时输出到文件和控制台
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 logger = logging.getLogger(__name__)
+logger.info(f"日志文件: {log_file}")
 
 # 创建FastAPI应用
 app = FastAPI(

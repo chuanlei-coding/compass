@@ -20,9 +20,16 @@ console.log('🚀 启动Word AI助手开发服务器...\n');
 if (!fs.existsSync(certPath) || !fs.existsSync(keyPath)) {
   console.log('📜 未找到开发证书，正在生成...');
   try {
-    execSync('npx office-addin-dev-certs install --machine', {
+    // 使用项目本地的 office-addin-dev-certs，避免 npx 权限问题
+    const officeAddinDevCertsPath = path.join(__dirname, 'node_modules', '.bin', 'office-addin-dev-certs');
+    const certsCmd = fs.existsSync(officeAddinDevCertsPath)
+      ? `${officeAddinDevCertsPath} install --machine`
+      : 'npx office-addin-dev-certs install --machine'; // 回退到 npx（如果本地不存在）
+    
+    execSync(certsCmd, {
       stdio: 'inherit',
       cwd: __dirname,
+      env: { ...process.env, PATH: `${path.join(__dirname, 'node_modules', '.bin')}:${process.env.PATH}` },
     });
     console.log('✅ 证书生成成功！\n');
   } catch (error) {
@@ -38,17 +45,38 @@ console.log('🌐 启动开发服务器...');
 console.log('   服务器地址: https://localhost:3000');
 console.log('   按 Ctrl+C 停止服务器\n');
 
-try {
-  execSync('npx webpack serve --mode development', {
-    stdio: 'inherit',
-    cwd: __dirname,
-  });
-} catch (error) {
-  if (error.status !== null) {
-    process.exit(error.status);
-  } else {
+// 使用 WebpackDevServer API 直接启动，避免 webpack-cli 的 entry 配置问题
+const webpack = require('webpack');
+const WebpackDevServer = require('webpack-dev-server');
+const webpackConfig = require('./webpack.config.js');
+
+// 设置开发模式
+const webpackConfigWithMode = {
+  ...webpackConfig,
+  mode: 'development',
+};
+
+// 创建编译器
+const compiler = webpack(webpackConfigWithMode);
+
+// 创建开发服务器
+const devServerOptions = {
+  ...webpackConfig.devServer,
+  open: false,
+};
+
+const server = new WebpackDevServer(devServerOptions, compiler);
+
+// 启动服务器
+const runServer = async () => {
+  try {
+    await server.start();
+    console.log('✅ 服务器已启动\n');
+  } catch (error) {
     console.error('❌ 启动失败:', error.message);
     process.exit(1);
   }
-}
+};
+
+runServer();
 

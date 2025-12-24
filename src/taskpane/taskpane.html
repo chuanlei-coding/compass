@@ -5,6 +5,39 @@
     <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Word AI助手</title>
+    <!-- 在 Office.js 加载之前设置错误处理，确保最早捕获跨域脚本错误 -->
+    <script type="text/javascript">
+        // 最早的错误处理：在 Office.js 加载之前设置
+        (function() {
+            // 捕获阶段的错误处理（最早执行）
+            window.addEventListener('error', function(event) {
+                // 过滤跨域脚本错误（Script error），这些错误通常来自外部脚本且无法获取详细信息
+                if (event.message === 'Script error.' && !event.filename && event.lineno === 0) {
+                    // 阻止事件传播，避免被 Office.js 运行时记录为严重错误
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.stopImmediatePropagation();
+                    // 使用 console.warn 而不是 console.error，降低日志级别
+                    if (console && console.warn) {
+                        console.warn('⚠️ 检测到跨域脚本错误（通常来自外部脚本，已阻止传播）');
+                    }
+                    return false;
+                }
+            }, true); // 捕获阶段，最早执行
+            
+            // 处理未捕获的 Promise 拒绝
+            window.addEventListener('unhandledrejection', function(event) {
+                const reason = event.reason;
+                if (reason && typeof reason === 'object' && reason.message === 'Script error.') {
+                    event.preventDefault();
+                    if (console && console.warn) {
+                        console.warn('⚠️ 检测到跨域脚本错误的Promise拒绝（已阻止传播）');
+                    }
+                    return false;
+                }
+            });
+        })();
+    </script>
     <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
 </head>
 <body>
