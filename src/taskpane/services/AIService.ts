@@ -50,11 +50,12 @@ export class AIService {
       return this.getMockResponse(userRequest);
     }
 
-    console.log('🚀 开始调用后端API...', {
+    const apiInfo = {
       apiUrl: this.apiUrl,
       model: this.modelName,
       hasApiKey: !!this.apiKey
-    });
+    };
+    console.log(`🚀 开始调用后端API... ${JSON.stringify(apiInfo, null, 2)}`);
 
     try {
       // 调用后端API
@@ -62,9 +63,14 @@ export class AIService {
       console.log('✅ 后端API调用成功');
       return response;
     } catch (error) {
-      console.error('❌ 后端API调用失败:', error);
+      console.warn('⚠️ 后端API调用失败（将降级到模拟响应）');
       if (error instanceof Error) {
-        console.error('错误详情:', error.message);
+        console.warn(`错误详情: ${error.message}`);
+        if (error.stack) {
+          console.warn(`错误堆栈: ${error.stack}`);
+        }
+      } else {
+        console.warn(`错误对象: ${String(error)}`);
       }
       // 降级到模拟响应
       console.warn('⚠️ 降级到模拟响应');
@@ -145,11 +151,12 @@ ${documentContent.substring(0, 2000)}${documentContent.length > 2000 ? '...' : '
       ? apiEndpoint 
       : `${window.location.protocol}//${window.location.host}${apiEndpoint} (通过proxy)`;
     
-    console.log('📡 发送请求到后端API:', apiEndpoint);
-    console.log('📡 完整URL:', fullUrl);
-    console.log('🌐 当前页面协议:', window.location.protocol);
-    console.log('🌐 当前页面主机:', window.location.host);
-    console.log('🌐 后端URL配置:', backendUrl || '(空，使用相对路径/proxy)');
+    // 合并所有信息到一个字符串，确保 Office.js 运行时日志能完整显示
+    console.log(`📡 发送请求到后端API: ${apiEndpoint}`);
+    console.log(`📡 完整URL: ${fullUrl}`);
+    console.log(`🌐 当前页面协议: ${window.location.protocol}`);
+    console.log(`🌐 当前页面主机: ${window.location.host}`);
+    console.log(`🌐 后端URL配置: ${backendUrl || '(空，使用相对路径/proxy)'}`);
     
     const requestBody = {
       user_request: userRequest,
@@ -159,13 +166,14 @@ ${documentContent.substring(0, 2000)}${documentContent.length > 2000 ? '...' : '
       model_name: this.modelName,
     };
 
-    console.log('请求参数:', {
+    const requestParams = {
       backendUrl: apiEndpoint,
       model: this.modelName,
       requestLength: userRequest.length,
       documentLength: documentContent.length,
       hasApiKey: !!this.apiKey
-    });
+    };
+    console.log(`请求参数: ${JSON.stringify(requestParams, null, 2)}`);
 
     try {
       const response = await fetch(apiEndpoint, {
@@ -176,24 +184,24 @@ ${documentContent.substring(0, 2000)}${documentContent.length > 2000 ? '...' : '
         body: JSON.stringify(requestBody),
       });
 
-      console.log('后端API响应状态:', response.status, response.statusText);
+      console.log(`后端API响应状态: ${response.status} ${response.statusText}`);
       // 记录响应头（兼容不同浏览器）
       const headers: Record<string, string> = {};
       response.headers.forEach((value, key) => {
         headers[key] = value;
       });
-      console.log('响应头:', headers);
+      console.log(`响应头: ${JSON.stringify(headers, null, 2)}`);
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ 后端API错误响应:', errorText);
-        console.error('错误状态码:', response.status);
-        console.error('错误状态文本:', response.statusText);
+        console.warn(`⚠️ 后端API错误响应: ${errorText}`);
+        console.warn(`错误状态码: ${response.status}`);
+        console.warn(`错误状态文本: ${response.statusText}`);
         throw new Error(`后端API请求失败 (${response.status}): ${response.statusText}. ${errorText.substring(0, 200)}`);
       }
 
       const data = await response.json();
-      console.log('✅ 后端API响应数据:', data);
+      console.log(`✅ 后端API响应数据: ${JSON.stringify(data, null, 2)}`);
       
       // 后端已经返回了解析后的AIResponse格式
       return {
@@ -222,49 +230,58 @@ ${documentContent.substring(0, 2000)}${documentContent.length > 2000 ? '...' : '
         }
       }
       
-      console.error('❌ 后端API调用失败');
-      console.error('当前页面协议:', currentProtocol);
-      console.error('后端API协议:', backendProtocol);
-      console.error('后端API地址:', apiEndpoint);
+      // 使用 console.warn 而不是 console.error，避免被 Office.js 记录为严重错误
+      // 这是可恢复的错误，会降级到模拟响应
+      // 合并所有信息到一个字符串，确保 Office.js 运行时日志能完整显示
+      console.warn(`⚠️ 后端API调用失败（将降级到模拟响应）`);
+      console.warn(`当前页面协议: ${currentProtocol}`);
+      console.warn(`后端API协议: ${backendProtocol}`);
+      console.warn(`后端API地址: ${apiEndpoint}`);
       
       // 检查是否是混合内容问题
       if (currentProtocol === 'https:' && backendProtocol === 'http:') {
-        console.error('⚠️ 检测到混合内容问题！');
-        console.error('问题: HTTPS页面无法访问HTTP后端');
-        console.error('解决方案:');
-        console.error('1. 配置后端使用HTTPS（推荐）');
-        console.error('2. 或使用webpack proxy代理（开发环境）');
-        console.error('3. 或在浏览器中允许混合内容（不推荐，仅用于开发）');
+        console.warn('⚠️ 检测到混合内容问题！');
+        console.warn('问题: HTTPS页面无法访问HTTP后端');
+        console.warn('解决方案: 1. 配置后端使用HTTPS（推荐） 2. 或使用webpack proxy代理（开发环境） 3. 或在浏览器中允许混合内容（不推荐，仅用于开发）');
       }
+      
+      // 格式化错误信息，确保完整输出
+      let errorMessage = '未知错误';
+      let errorType = 'Unknown';
+      let errorStack = '';
       
       if (error instanceof TypeError) {
         const errorMsg = error.message.toLowerCase();
         if (errorMsg.includes('fetch') || errorMsg.includes('network') || errorMsg.includes('failed')) {
-          console.error('❌ 网络连接错误');
-          console.error('可能的原因:');
-          console.error('1. 后端服务未启动');
-          console.error('   检查: curl http://localhost:8000/health');
-          console.error('2. 网络连接问题');
-          console.error('3. CORS配置问题');
-          console.error('4. 混合内容阻止 (HTTPS → HTTP)');
-          console.error('5. 防火墙阻止');
-          console.error('错误详情:', error.message);
-          console.error('错误类型:', error.constructor.name);
-          throw new Error(`无法连接到后端服务器: ${error.message}。请检查后端服务是否运行在 ${apiEndpoint}`);
+          errorMessage = error.message || '网络连接失败';
+          errorType = 'NetworkError';
+          errorStack = error.stack || '';
+          
+          console.warn(`⚠️ 网络连接错误: ${errorMessage}`);
+          console.warn(`可能的原因: 1. 后端服务未启动（检查: curl http://localhost:8000/health） 2. 网络连接问题 3. CORS配置问题 4. 混合内容阻止 (HTTPS → HTTP) 5. 防火墙阻止`);
+          console.warn(`错误类型: ${errorType}`);
+          
+          throw new Error(`无法连接到后端服务器: ${errorMessage}。请检查后端服务是否运行在 ${apiEndpoint}`);
         }
       }
       
       if (error instanceof Error) {
-        console.error('❌ 后端API调用错误:', error.message);
-        console.error('错误类型:', error.constructor.name);
-        if (error.stack) {
-          console.error('错误堆栈:', error.stack);
+        errorMessage = error.message || '未知错误';
+        errorType = error.constructor.name || 'Error';
+        errorStack = error.stack || '';
+        
+        console.warn(`⚠️ 后端API调用错误: ${errorMessage}`);
+        console.warn(`错误类型: ${errorType}`);
+        if (errorStack) {
+          console.warn(`错误堆栈: ${errorStack}`);
         }
         throw error;
       } else {
-        console.error('❌ 未知错误:', error);
-        console.error('错误类型:', typeof error);
-        throw new Error(`后端API调用失败: ${String(error)}`);
+        errorMessage = String(error);
+        errorType = typeof error;
+        console.warn(`⚠️ 未知错误类型: ${errorMessage}`);
+        console.warn(`错误类型: ${errorType}`);
+        throw new Error(`后端API调用失败: ${errorMessage}`);
       }
     }
   }

@@ -14,6 +14,7 @@ declare namespace Word {
 
   interface Document {
     body: Word.Body;
+    getSelection(): Word.Range;
   }
 
   interface Body {
@@ -25,9 +26,17 @@ declare namespace Word {
   }
 
   interface Range {
+    text: string;
     font: Word.Font;
     insertText(text: string, insertLocation: Word.InsertLocation): Word.Range;
     delete(): void;
+    collapse(direction: Word.CollapseDirection): void;
+    load(propertyNames?: string | string[]): void;
+  }
+
+  enum CollapseDirection {
+    start = 'Start',
+    end = 'End'
   }
 
   interface Paragraph {

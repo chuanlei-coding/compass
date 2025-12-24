@@ -152,8 +152,17 @@ async def call_ai_api(
     
     logger.info(f"调用AI API: {api_url}, 模型: {model_name}")
     
+    # AI API调用可能需要较长时间，特别是大模型
+    # 设置超时时间为300秒（5分钟），与前端proxy超时时间保持一致
+    timeout_config = httpx.Timeout(
+        connect=10.0,  # 连接超时：10秒
+        read=300.0,    # 读取超时：300秒（5分钟）
+        write=10.0,    # 写入超时：10秒
+        pool=10.0      # 连接池超时：10秒
+    )
+    
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
             response = await client.post(
                 api_url,
                 headers=headers,
@@ -161,19 +170,69 @@ async def call_ai_api(
             )
             
             if response.status_code != 200:
-                error_text = response.text
-                logger.error(f"AI API调用失败: {response.status_code}, {error_text}")
+                # 尝试获取错误文本
+                try:
+                    error_text = response.text
+                    error_json = None
+                    try:
+                        error_json = response.json()
+                    except:
+                        pass
+                except Exception as e:
+                    error_text = f"无法读取错误响应: {str(e)}"
+                    error_json = None
+                
+                # 详细记录错误信息
+                logger.error(f"AI API调用失败: 状态码={response.status_code}")
+                logger.error(f"错误响应文本: {error_text[:1000] if error_text else '(空)'}")
+                if error_json:
+                    logger.error(f"错误响应JSON: {error_json}")
+                logger.error(f"响应头: {dict(response.headers)}")
+                
+                # 构建详细的错误信息
+                error_detail = f"AI API调用失败 (状态码: {response.status_code})"
+                if error_text:
+                    error_detail += f". 错误信息: {error_text[:500]}"
+                elif error_json:
+                    error_detail += f". 错误详情: {str(error_json)[:500]}"
+                
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"AI API调用失败: {response.status_code} - {error_text[:200]}"
+                    detail=error_detail
                 )
             
             data = response.json()
-            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            
+            # 详细记录响应数据，便于调试
+            logger.debug(f"AI API响应数据: {data}")
+            
+            # 检查响应结构
+            choices = data.get("choices", [])
+            if not choices:
+                logger.error(f"AI API响应中没有choices: {data}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"AI API响应格式错误：没有choices字段。响应数据: {str(data)[:500]}"
+                )
+            
+            message = choices[0].get("message", {})
+            if not message:
+                logger.error(f"AI API响应中choices[0]没有message: {data}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"AI API响应格式错误：choices[0]中没有message字段。响应数据: {str(data)[:500]}"
+                )
+            
+            content = message.get("content", "")
             
             if not content:
-                logger.warning("AI API响应中没有内容")
-                raise HTTPException(status_code=500, detail="AI API响应中没有内容")
+                logger.error(f"AI API响应中没有content字段")
+                logger.error(f"完整响应数据: {data}")
+                logger.error(f"响应结构: choices数量={len(choices)}, message={message}, content={repr(content)}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"AI API响应中没有内容。响应结构: {str(data)[:1000]}"
+                )
             
             return content
             
@@ -286,11 +345,15 @@ async def process_request(request: ProcessRequest):
         logger.info(f"成功处理请求: {request.user_request[:50]}...")
         return ai_response
         
-    except HTTPException:
+    except HTTPException as e:
+        # 记录HTTP异常的详细信息
+        logger.error(f"HTTP异常: 状态码={e.status_code}, 详情={e.detail}")
+        logger.error(f"请求信息: user_request={request.user_request[:100]}, api_url={request.api_url}, model={request.model_name}")
         # 重新抛出HTTP异常
         raise
     except Exception as e:
         logger.error(f"处理请求时出错: {e}", exc_info=True)
+        logger.error(f"请求信息: user_request={request.user_request[:100]}, api_url={request.api_url}, model={request.model_name}")
         # 发生错误时返回模拟响应
         logger.warning("返回模拟响应作为降级方案")
         return get_mock_response(request.user_request)
