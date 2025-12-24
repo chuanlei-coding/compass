@@ -65,12 +65,18 @@ class ProcessRequest(BaseModel):
 
 class EditOperation(BaseModel):
     """编辑操作模型"""
-    type: str  # insert|replace|format|delete|addParagraph
+    type: str  # insert|replace|format|delete|addParagraph|insertTable|setHeading
     content: Optional[str] = None
     position: Optional[str] = None  # start|end|数字
     searchText: Optional[str] = None
     replaceText: Optional[str] = None
     format: Optional[Dict[str, Any]] = None
+    # 表格相关参数
+    tableRows: Optional[int] = None
+    tableColumns: Optional[int] = None
+    tableData: Optional[List[List[str]]] = None  # 表格数据，二维数组，第一行通常是表头
+    # 段落样式相关参数
+    style: Optional[str] = None  # 段落样式，如 "Heading1", "Heading2", "Heading3", "Normal"
 
 
 class AIResponse(BaseModel):
@@ -103,7 +109,7 @@ def build_prompt(user_request: str, document_content: str) -> str:
   "message": "操作说明",
   "edits": [
     {{
-      "type": "insert|replace|format|delete|addParagraph",
+      "type": "insert|replace|format|delete|addParagraph|insertTable|setHeading",
       "content": "文本内容（如果需要）",
       "position": "start|end|数字",
       "searchText": "要搜索的文本（如果需要）",
@@ -114,10 +120,68 @@ def build_prompt(user_request: str, document_content: str) -> str:
         "underline": true/false,
         "fontSize": 数字,
         "fontColor": "颜色代码"
-      }}
+      }},
+      "tableRows": 行数（仅当type为insertTable时）,
+      "tableColumns": 列数（仅当type为insertTable时）,
+      "tableData": [["表头1", "表头2", ...], ["数据1", "数据2", ...], ...]（表格数据，二维数组，第一行是表头）,
+      "style": "Heading1|Heading2|Heading3|Normal"（段落样式，用于标题或段落）
     }}
   ]
 }}
+
+支持的编辑操作类型：
+- insert: 插入文本
+- replace: 替换文本
+- format: 格式化文本
+- delete: 删除文本
+- addParagraph: 添加段落（可以指定style设置为标题）
+- insertTable: 插入表格（需要指定tableRows和tableColumns，以及tableData）
+- setHeading: 设置段落为标题样式（需要指定searchText或content，以及style）
+
+段落样式说明：
+- "Heading1": 一级标题（H1）
+- "Heading2": 二级标题（H2）
+- "Heading3": 三级标题（H3）
+- "Normal": 正文样式
+
+示例1：如果用户要求"在文档末尾插入三行四列的表格"，应返回：
+{{
+  "message": "已在文档末尾插入三行四列的表格",
+  "edits": [
+    {{
+      "type": "insertTable",
+      "tableRows": 3,
+      "tableColumns": 4
+    }}
+  ]
+}}
+
+示例2：如果用户要求"用表格的形式整理南宋的最后七位皇帝,需要包含以下信息:称号、名字、生卒年月、在位时间、主要辅佐的宰相、与崖山之战的关系、去世的年纪"，应返回：
+{{
+  "message": "已在文档末尾插入包含南宋最后七位皇帝信息的表格",
+  "edits": [
+    {{
+      "type": "insertTable",
+      "tableRows": 8,
+      "tableColumns": 7,
+      "tableData": [
+        ["称号", "名字", "生卒年月", "在位时间", "主要辅佐的宰相", "与崖山之战的关系", "去世的年纪"],
+        ["宋高宗", "赵构", "1107-1187", "1127-1162", "秦桧", "无关", "81"],
+        ["宋孝宗", "赵昚", "1127-1194", "1162-1189", "虞允文", "无关", "68"],
+        ["宋光宗", "赵惇", "1147-1200", "1189-1194", "留正", "无关", "54"],
+        ["宋宁宗", "赵扩", "1168-1224", "1194-1224", "韩侂胄、史弥远", "无关", "57"],
+        ["宋理宗", "赵昀", "1205-1264", "1224-1264", "贾似道", "无关", "60"],
+        ["宋度宗", "赵禥", "1240-1274", "1264-1274", "贾似道", "无关", "35"],
+        ["宋恭帝", "赵㬎", "1271-1323", "1274-1276", "陈宜中", "1279年崖山之战前已退位", "53"]
+      ]
+    }}
+  ]
+}}
+
+注意：
+1. tableData的第一行必须是表头，后续行是数据行。tableRows应该等于tableData的行数，tableColumns应该等于tableData每行的列数。
+2. 当需要创建标题时，使用addParagraph类型，并在style字段中指定"Heading1"或"Heading2"。例如：如果用户要求"将以下内容作为段落标题"或"生成小说章节标题"，应该使用addParagraph + style="Heading2"（章节标题通常用H2，主标题用H1）。
+3. 如果用户明确要求"一级标题"或"主标题"，使用style="Heading1"；如果要求"二级标题"、"章节标题"或"段落标题"，使用style="Heading2"。
 
 只返回JSON，不要其他内容。"""
 
@@ -147,7 +211,7 @@ async def call_ai_api(
             }
         ],
         "temperature": 0.7,
-        "max_tokens": 1000
+        "max_tokens": 10000
     }
     
     logger.info(f"调用AI API: {api_url}, 模型: {model_name}")
