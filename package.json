@@ -5,9 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "webpack --mode production",
-    "dev": "node start-dev.js",
-    "dev:simple": "webpack serve --mode development",
-    "start": "npm run dev",
+    "start": "python start-server.py",
     "validate": "office-addin-manifest validate manifest.xml",
     "setup-certs": "npx office-addin-dev-certs install --machine"
   },
@@ -41,8 +39,7 @@
     "ts-loader": "^9.4.4",
     "typescript": "^5.1.6",
     "webpack": "^5.88.2",
-    "webpack-cli": "^5.1.4",
-    "webpack-dev-server": "^4.15.1"
+    "webpack-cli": "^5.1.4"
   }
 }
 

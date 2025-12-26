@@ -2,21 +2,24 @@
 FastAPI 后端服务
 作为前端和AI API之间的代理服务器
 """
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, AsyncGenerator
 import httpx
 import logging
 import os
+import json
+import time
+import sys
+from pathlib import Path
+from datetime import datetime
 from dotenv import load_dotenv
 
 # 加载环境变量
 load_dotenv()
-
-# 配置日志
-import sys
-from datetime import datetime
 
 # 创建日志目录
 log_dir = os.path.join(os.path.dirname(__file__), 'logs')
@@ -37,10 +40,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logger.info(f"日志文件: {log_file}")
 
+# 获取项目根目录和dist目录
+BACKEND_DIR = Path(__file__).parent
+PROJECT_ROOT = BACKEND_DIR.parent
+DIST_DIR = PROJECT_ROOT / "dist"
+ASSETS_DIR = PROJECT_ROOT / "assets"
+
+logger.info(f"[Server] 项目根目录: {PROJECT_ROOT}")
+logger.info(f"[Server] 前端构建目录: {DIST_DIR}")
+logger.info(f"[Server] 资源目录: {ASSETS_DIR}")
+logger.info(f"[Server] dist目录是否存在: {DIST_DIR.exists()}")
+
 # 创建FastAPI应用
 app = FastAPI(
-    title="Word AI助手后端服务",
-    description="Word/WPS AI助手插件的后端API服务",
+    title="Word AI助手服务",
+    description="Word/WPS AI助手插件的完整服务（API + 前端）",
     version="1.0.0"
 )
 
@@ -52,6 +66,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注意：静态文件挂载将在所有API路由定义之后进行
+# 这样可以确保API路由（如 /api/process）优先匹配，不会被静态文件路由拦截
 
 # 请求模型
 class ProcessRequest(BaseModel):
@@ -186,13 +203,31 @@ def build_prompt(user_request: str, document_content: str) -> str:
 只返回JSON，不要其他内容。"""
 
 
-async def call_ai_api(
+async def call_ai_api_with_progress(
     prompt: str,
     api_key: str,
-    api_url: str = DEFAULT_API_URL,
-    model_name: str = DEFAULT_MODEL_NAME
-) -> str:
-    """调用AI API"""
+    api_url: str,
+    model_name: str
+) -> AsyncGenerator[tuple[str, int, int, float], None]:
+    """
+    调用AI API并流式返回内容
+    
+    Yields:
+        (content_chunk, chunk_count, content_length, elapsed_time)
+    """
+    """
+    调用AI API并流式返回内容，支持进度回调
+    
+    Args:
+        prompt: 提示词
+        api_key: API密钥
+        api_url: API URL
+        model_name: 模型名称
+        progress_callback: 进度回调函数 (chunk_count, content_length, elapsed_time)
+    
+    Yields:
+        内容块字符串
+    """
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
@@ -211,101 +246,126 @@ async def call_ai_api(
             }
         ],
         "temperature": 0.7,
-        "max_tokens": 10000
+        "max_tokens": 8000,
+        "stream": True
     }
     
-    logger.info(f"调用AI API: {api_url}, 模型: {model_name}")
+    logger.info("调用AI API (流式): %s, 模型: %s", api_url, model_name)
     
-    # AI API调用可能需要较长时间，特别是大模型
-    # 设置超时时间为300秒（5分钟），与前端proxy超时时间保持一致
     timeout_config = httpx.Timeout(
-        connect=10.0,  # 连接超时：10秒
-        read=300.0,    # 读取超时：300秒（5分钟）
-        write=10.0,    # 写入超时：10秒
-        pool=10.0      # 连接池超时：10秒
+        connect=10.0,
+        read=300.0,
+        write=10.0,
+        pool=10.0
     )
     
     try:
         async with httpx.AsyncClient(timeout=timeout_config) as client:
-            response = await client.post(
-                api_url,
-                headers=headers,
-                json=request_body
-            )
-            
-            if response.status_code != 200:
-                # 尝试获取错误文本
-                try:
-                    error_text = response.text
-                    error_json = None
+            async with client.stream("POST", api_url, headers=headers, json=request_body) as response:
+                if response.status_code != 200:
+                    error_text = ""
                     try:
-                        error_json = response.json()
-                    except:
+                        error_bytes = await response.aread()
+                        error_text = error_bytes.decode('utf-8', errors='ignore')
+                    except Exception:
                         pass
+                    
+                    error_detail = f"AI API调用失败 (状态码: {response.status_code})"
+                    if error_text:
+                        error_detail += f". 错误信息: {error_text[:500]}"
+                    
+                    raise HTTPException(
+                        status_code=response.status_code,
+                        detail=error_detail
+                    )
+                
+                content_parts: List[str] = []
+                chunk_count = 0
+                start_time = time.time()
+                
+                try:
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        
+                        if line.startswith("data: "):
+                            data_str = line[6:]
+                            
+                            if data_str.strip() == "[DONE]":
+                                logger.info("[SSE] 收到 [DONE] 标记，流式响应正常结束")
+                                break
+                            
+                            try:
+                                chunk_data = json.loads(data_str)
+                                chunk_count += 1
+                                
+                                choices = chunk_data.get("choices", [])
+                                if choices and len(choices) > 0:
+                                    choice = choices[0]
+                                    finish_reason = choice.get("finish_reason")
+                                    if finish_reason in ["stop", "length"]:
+                                        logger.info(f"[SSE] 收到 finish_reason: {finish_reason}，流式响应正常结束")
+                                        break
+                                    
+                                    delta = choice.get("delta", {})
+                                    chunk_content = delta.get("content", "")
+                                    if chunk_content:
+                                        content_parts.append(chunk_content)
+                                        current_time = time.time()
+                                        elapsed_time = current_time - start_time
+                                        content_length = sum(len(p) for p in content_parts)
+                                        
+                                        yield (chunk_content, chunk_count, content_length, elapsed_time)
+                            except (json.JSONDecodeError, Exception) as e:
+                                logger.debug(f"[SSE] 解析数据块失败: {e}")
+                                continue
+                
+                except httpx.RemoteProtocolError as e:
+                    # 连接在流式传输过程中被关闭
+                    error_msg = str(e)
+                    logger.warning(f"[SSE] 流式传输过程中连接被关闭: {error_msg}")
+                    logger.warning(f"[SSE] 已接收 {chunk_count} 个数据块，内容长度: {sum(len(p) for p in content_parts)} 字符")
+                    
+                    # 如果已经接收到部分内容，记录警告但继续处理
+                    if content_parts:
+                        logger.warning("[SSE] 连接中断但已接收到部分内容，将使用已接收的内容继续处理")
+                    else:
+                        # 如果没有接收到任何内容，抛出异常
+                        logger.error("[SSE] 连接中断且未接收到任何内容")
+                        raise HTTPException(
+                            status_code=503,
+                            detail=f"AI API连接中断: {error_msg} (连接在传输过程中被关闭，可能是服务器端问题或网络中断)"
+                        )
                 except Exception as e:
-                    error_text = f"无法读取错误响应: {str(e)}"
-                    error_json = None
+                    # 其他流式读取错误
+                    error_msg = str(e)
+                    logger.error(f"[SSE] 流式读取时发生错误: {type(e).__name__}: {error_msg}", exc_info=True)
+                    
+                    # 如果已经接收到部分内容，记录警告但继续处理
+                    if content_parts:
+                        logger.warning(f"[SSE] 读取错误但已接收到部分内容 ({len(content_parts)} 块)，将使用已接收的内容继续处理")
+                    else:
+                        # 如果没有接收到任何内容，抛出异常
+                        logger.error("[SSE] 读取错误且未接收到任何内容")
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"读取AI API流式响应失败: {error_msg}"
+                        )
                 
-                # 详细记录错误信息
-                logger.error(f"AI API调用失败: 状态码={response.status_code}")
-                logger.error(f"错误响应文本: {error_text[:1000] if error_text else '(空)'}")
-                if error_json:
-                    logger.error(f"错误响应JSON: {error_json}")
-                logger.error(f"响应头: {dict(response.headers)}")
-                
-                # 构建详细的错误信息
-                error_detail = f"AI API调用失败 (状态码: {response.status_code})"
-                if error_text:
-                    error_detail += f". 错误信息: {error_text[:500]}"
-                elif error_json:
-                    error_detail += f". 错误详情: {str(error_json)[:500]}"
-                
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=error_detail
-                )
-            
-            data = response.json()
-            
-            # 详细记录响应数据，便于调试
-            logger.debug(f"AI API响应数据: {data}")
-            
-            # 检查响应结构
-            choices = data.get("choices", [])
-            if not choices:
-                logger.error(f"AI API响应中没有choices: {data}")
-                raise HTTPException(
-                    status_code=500, 
-                    detail=f"AI API响应格式错误：没有choices字段。响应数据: {str(data)[:500]}"
-                )
-            
-            message = choices[0].get("message", {})
-            if not message:
-                logger.error(f"AI API响应中choices[0]没有message: {data}")
-                raise HTTPException(
-                    status_code=500, 
-                    detail=f"AI API响应格式错误：choices[0]中没有message字段。响应数据: {str(data)[:500]}"
-                )
-            
-            content = message.get("content", "")
-            
-            if not content:
-                logger.error(f"AI API响应中没有content字段")
-                logger.error(f"完整响应数据: {data}")
-                logger.error(f"响应结构: choices数量={len(choices)}, message={message}, content={repr(content)}")
-                raise HTTPException(
-                    status_code=500, 
-                    detail=f"AI API响应中没有内容。响应结构: {str(data)[:1000]}"
-                )
-            
-            return content
-            
-    except httpx.TimeoutException:
-        logger.error("AI API调用超时")
-        raise HTTPException(status_code=504, detail="AI API调用超时")
+                # 最终内容已通过yield返回
+                    
+    except httpx.TimeoutException as e:
+        logger.error(f"AI API调用超时: {e}", exc_info=True)
+        raise HTTPException(status_code=504, detail=f"AI API调用超时: {str(e)}")
     except httpx.RequestError as e:
-        logger.error(f"AI API请求错误: {e}")
-        raise HTTPException(status_code=503, detail=f"AI API请求错误: {str(e)}")
+        logger.error(f"AI API请求错误: {type(e).__name__}: {e}", exc_info=True)
+        error_detail = f"AI API请求错误: {str(e)}"
+        if "peer closed connection" in str(e) or "incomplete chunked read" in str(e):
+            error_detail += " (连接在传输过程中被关闭，可能是服务器端问题或网络中断)"
+        raise HTTPException(status_code=503, detail=error_detail)
+    except Exception as e:
+        logger.error(f"AI API调用时发生未知错误: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"AI API调用失败: {str(e)}")
 
 
 def parse_ai_response(response_text: str) -> AIResponse:
@@ -365,65 +425,288 @@ def get_mock_response(user_request: str) -> AIResponse:
 
 @app.get("/")
 async def root():
-    """根路径，返回服务信息"""
-    return {
-        "service": "Word AI助手后端服务",
-        "version": "1.0.0",
-        "status": "running"
-    }
+    """根路径，返回服务信息或前端页面"""
+    # 如果dist目录存在且有taskpane.html，返回前端页面
+    taskpane_html = DIST_DIR / "taskpane.html"
+    if taskpane_html.exists():
+        logger.info("[Server] 返回前端页面: taskpane.html")
+        return FileResponse(str(taskpane_html))
+    else:
+        # 否则返回API信息
+        return {
+            "service": "Word AI助手服务",
+            "version": "1.0.0",
+            "status": "running",
+            "note": "前端文件未找到，请先运行 'npm run build' 构建前端代码"
+        }
+
+
+@app.get("/taskpane.html")
+async def taskpane_html():
+    """返回taskpane.html页面"""
+    taskpane_file = DIST_DIR / "taskpane.html"
+    if taskpane_file.exists():
+        logger.info("[Server] 返回taskpane.html")
+        return FileResponse(str(taskpane_file))
+    else:
+        logger.error("[Server] taskpane.html不存在: %s", taskpane_file)
+        raise HTTPException(status_code=404, detail="taskpane.html not found. Please run 'npm run build' first.")
+
+
+@app.get("/commands.html")
+async def commands_html():
+    """返回commands.html页面"""
+    commands_file = DIST_DIR / "commands.html"
+    if commands_file.exists():
+        logger.info("[Server] 返回commands.html")
+        return FileResponse(str(commands_file))
+    else:
+        logger.error("[Server] commands.html不存在: %s", commands_file)
+        raise HTTPException(status_code=404, detail="commands.html not found. Please run 'npm run build' first.")
 
 
 @app.get("/health")
 async def health_check():
     """健康检查"""
-    return {"status": "healthy"}
+    dist_exists = DIST_DIR.exists()
+    taskpane_exists = (DIST_DIR / "taskpane.html").exists() if dist_exists else False
+    return {
+        "status": "healthy",
+        "frontend_built": dist_exists,
+        "taskpane_available": taskpane_exists
+    }
 
 
-@app.post("/api/process", response_model=AIResponse)
-async def process_request(request: ProcessRequest):
+# 添加静态文件路由（在mount之前，作为显式路由）
+@app.get("/taskpane.js")
+async def serve_taskpane_js():
+    """返回taskpane.js文件"""
+    js_file = DIST_DIR / "taskpane.js"
+    if js_file.exists():
+        logger.debug("[Server] 返回taskpane.js")
+        return FileResponse(str(js_file), media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="taskpane.js not found")
+
+
+@app.get("/commands.js")
+async def serve_commands_js():
+    """返回commands.js文件"""
+    js_file = DIST_DIR / "commands.js"
+    if js_file.exists():
+        logger.debug("[Server] 返回commands.js")
+        return FileResponse(str(js_file), media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="commands.js not found")
+
+
+async def process_request_stream(request: ProcessRequest) -> AsyncGenerator[str, None]:
     """
-    处理用户请求
+    流式处理用户请求，通过SSE发送进度更新和最终结果
+    """
+    logger.info(f"[SSE] 开始处理请求: {request.user_request[:50]}...")
+    logger.info(f"[SSE] API URL: {request.api_url}, Model: {request.model_name}")
     
-    接收前端请求，调用AI API，返回编辑操作
-    """
     # 检查API密钥
     api_key = request.api_key
     if not api_key or not api_key.strip():
-        logger.warning("API密钥未配置，返回模拟响应")
-        return get_mock_response(request.user_request)
+        logger.warning("[SSE] API密钥未配置，返回模拟响应")
+        mock_response = get_mock_response(request.user_request)
+        result_event = f"data: {json.dumps({'type': 'result', 'data': mock_response.model_dump()})}\n\n"
+        logger.info(f"[SSE] 发送模拟响应事件: {len(result_event)} 字节")
+        yield result_event
+        logger.info("[SSE] 模拟响应发送完成")
+        return
     
-    # 使用请求中的配置，如果没有则使用默认值
+    # 使用请求中的配置
     api_url = request.api_url or DEFAULT_API_URL
     model_name = request.model_name or DEFAULT_MODEL_NAME
     
     try:
-        # 构建提示词
-        prompt = build_prompt(request.user_request, request.document_content)
+        # 发送开始事件
+        start_event = {'type': 'start', 'message': '开始处理请求...'}
+        start_event_str = f"data: {json.dumps(start_event)}\n\n"
+        logger.info(f"[SSE] 发送开始事件: {start_event_str.strip()}")
+        yield start_event_str
+        logger.info("[SSE] 开始事件已发送")
         
-        # 调用AI API
-        ai_response_text = await call_ai_api(prompt, api_key, api_url, model_name)
+        # 构建提示词
+        logger.info("[SSE] 构建提示词...")
+        prompt = build_prompt(request.user_request, request.document_content)
+        logger.info(f"[SSE] 提示词长度: {len(prompt)} 字符")
+        
+        # 收集所有内容块
+        content_parts: List[str] = []
+        last_progress_time = time.time()
+        chunk_received_count = 0
+        
+        logger.info("[SSE] 开始调用AI API...")
+        # 调用AI API并流式接收
+        async for chunk_content, chunk_count, content_length, elapsed_time in call_ai_api_with_progress(prompt, api_key, api_url, model_name):
+            chunk_received_count += 1
+            content_parts.append(chunk_content)
+            current_time = time.time()
+            
+            logger.debug(f"[SSE] 收到内容块 #{chunk_received_count}: {len(chunk_content)} 字符, 累计: {content_length} 字符, 耗时: {elapsed_time:.2f} 秒")
+            
+            # 每5秒发送一次进度更新
+            if current_time - last_progress_time >= 5.0:
+                progress_data = {
+                    'type': 'progress',
+                    'chunk_count': chunk_count,
+                    'content_length': content_length,
+                    'elapsed_time': round(elapsed_time, 2)
+                }
+                progress_event_str = f"data: {json.dumps(progress_data)}\n\n"
+                logger.info(f"[SSE] 发送进度更新: chunk_count={chunk_count}, content_length={content_length}, elapsed_time={elapsed_time:.2f}秒")
+                logger.debug(f"[SSE] 进度事件内容: {progress_event_str.strip()}")
+                yield progress_event_str
+                logger.info("[SSE] 进度更新已发送")
+                last_progress_time = current_time
+        
+        logger.info(f"[SSE] AI API调用完成，共接收 {chunk_received_count} 个内容块")
+        
+        # 合并所有内容
+        ai_response_text = "".join(content_parts)
+        logger.info(f"[SSE] 合并内容完成，总长度: {len(ai_response_text)} 字符")
         
         # 解析响应
+        logger.info("[SSE] 开始解析AI响应...")
         ai_response = parse_ai_response(ai_response_text)
+        logger.info(f"[SSE] 解析完成，编辑操作数量: {len(ai_response.edits)}")
         
-        logger.info(f"成功处理请求: {request.user_request[:50]}...")
-        return ai_response
+        # 发送最终结果
+        result_data = {
+            'type': 'result',
+            'data': ai_response.model_dump()
+        }
+        result_event_str = f"data: {json.dumps(result_data)}\n\n"
+        logger.info(f"[SSE] 准备发送最终结果，事件大小: {len(result_event_str)} 字节")
+        logger.debug(f"[SSE] 结果事件内容: {result_event_str[:500]}...")
+        yield result_event_str
+        logger.info("[SSE] 最终结果已发送")
+        
+        logger.info(f"[SSE] 成功处理请求: {request.user_request[:50]}...")
         
     except HTTPException as e:
-        # 记录HTTP异常的详细信息
-        logger.error(f"HTTP异常: 状态码={e.status_code}, 详情={e.detail}")
-        logger.error(f"请求信息: user_request={request.user_request[:100]}, api_url={request.api_url}, model={request.model_name}")
-        # 重新抛出HTTP异常
-        raise
+        logger.error(f"[SSE] HTTP异常: 状态码={e.status_code}, 详情={e.detail}")
+        error_data = {
+            'type': 'error',
+            'status_code': e.status_code,
+            'detail': e.detail
+        }
+        error_event_str = f"data: {json.dumps(error_data)}\n\n"
+        logger.error(f"[SSE] 发送错误事件: {error_event_str.strip()}")
+        yield error_event_str
+        logger.error("[SSE] 错误事件已发送")
     except Exception as e:
-        logger.error(f"处理请求时出错: {e}", exc_info=True)
-        logger.error(f"请求信息: user_request={request.user_request[:100]}, api_url={request.api_url}, model={request.model_name}")
-        # 发生错误时返回模拟响应
-        logger.warning("返回模拟响应作为降级方案")
-        return get_mock_response(request.user_request)
+        logger.error(f"[SSE] 处理请求时出错: {e}", exc_info=True)
+        error_data = {
+            'type': 'error',
+            'status_code': 500,
+            'detail': str(e)
+        }
+        error_event_str = f"data: {json.dumps(error_data)}\n\n"
+        logger.error(f"[SSE] 发送错误事件: {error_event_str.strip()}")
+        yield error_event_str
+        logger.error("[SSE] 错误事件已发送")
+
+
+@app.post("/api/process")
+async def process_request(request: ProcessRequest):
+    """
+    处理用户请求（SSE流式响应）
+    
+    接收前端请求，调用AI API，通过SSE流式返回进度更新和最终结果
+    """
+    logger.info("[API] 收到请求: %s...", request.user_request[:50])
+    logger.info("[API] 请求头检查: Content-Type应该为application/json")
+    logger.info("[API] 请求时间: %s", time.time())
+    
+    # 创建一个包装函数，确保立即发送响应头
+    async def stream_with_immediate_response():
+        try:
+            logger.info("[API] StreamingResponse generator开始执行")
+            # 立即发送一个初始事件，确保响应头被发送
+            initial_event = {'type': 'start', 'message': '连接已建立，开始处理...'}
+            initial_event_str = f"data: {json.dumps(initial_event)}\n\n"
+            logger.info(f"[API] 立即发送初始事件: {initial_event_str.strip()}")
+            yield initial_event_str
+            logger.info("[API] 初始事件已发送，响应头应该已经发送到客户端")
+            
+            # 然后继续处理请求流
+            async for chunk in process_request_stream(request):
+                yield chunk
+        except Exception as e:
+            logger.error(f"[API] Stream generator出错: {e}", exc_info=True)
+            error_event = {'type': 'error', 'status_code': 500, 'detail': str(e)}
+            yield f"data: {json.dumps(error_event)}\n\n"
+    
+    response = StreamingResponse(
+        stream_with_immediate_response(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # 禁用nginx缓冲
+            "Access-Control-Allow-Origin": "*",  # CORS支持
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"
+        }
+    )
+    
+    logger.info("[API] 返回StreamingResponse，媒体类型: text/event-stream")
+    logger.info("[API] 响应头已设置，应该立即发送到客户端")
+    return response
+
+
+# 在所有API路由定义之后，挂载静态文件目录
+# 这样可以确保API路由优先匹配，静态文件作为后备
+if DIST_DIR.exists():
+    # 挂载到根路径，这样HTML中的相对路径引用（如taskpane.js）能正常工作
+    # html=True 表示对于目录请求，返回index.html（如果有）
+    app.mount("/", StaticFiles(directory=str(DIST_DIR), html=True), name="static")
+    logger.info("[Server] 已挂载静态文件目录到根路径: %s", DIST_DIR)
+else:
+    logger.warning("[Server] 警告: dist目录不存在，静态文件服务将不可用")
+    logger.warning("[Server] 请先运行 'npm run build' 构建前端代码")
+
+# 挂载资源目录（图标等）
+if ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
+    logger.info("[Server] 已挂载资源目录: %s", ASSETS_DIR)
+else:
+    logger.warning("[Server] 警告: assets目录不存在")
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import ssl
+    
+    # 尝试加载HTTPS证书（Office Add-ins要求HTTPS）
+    cert_path = Path.home() / ".office-addin-dev-certs" / "localhost.crt"
+    key_path = Path.home() / ".office-addin-dev-certs" / "localhost.key"
+    
+    ssl_context = None
+    if cert_path.exists() and key_path.exists():
+        try:
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_context.load_cert_chain(str(cert_path), str(key_path))
+            logger.info("[Server] 已加载HTTPS证书: %s", cert_path)
+        except Exception as e:
+            logger.warning("[Server] 加载HTTPS证书失败: %s", e)
+            logger.warning("[Server] 将使用HTTP（Office Add-ins可能需要HTTPS）")
+            ssl_context = None
+    else:
+        logger.warning("[Server] 未找到HTTPS证书: %s", cert_path)
+        logger.warning("[Server] 将使用HTTP（Office Add-ins可能需要HTTPS）")
+        logger.warning("[Server] 提示: 运行 'npm run setup-certs' 生成证书")
+    
+    # 启动服务器
+    port = 3000
+    if ssl_context:
+        logger.info("[Server] 启动HTTPS服务器: https://localhost:%d", port)
+        uvicorn.run(app, host="0.0.0.0", port=port, ssl_keyfile=str(key_path), ssl_certfile=str(cert_path))
+    else:
+        logger.info("[Server] 启动HTTP服务器: http://localhost:%d", port)
+        logger.warning("[Server] 注意: Office Add-ins要求HTTPS，请配置证书或使用反向代理")
+        uvicorn.run(app, host="0.0.0.0", port=port)
 
