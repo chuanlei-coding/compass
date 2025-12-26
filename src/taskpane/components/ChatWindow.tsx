@@ -18,12 +18,8 @@ export const ChatWindow: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [isLoadingSelection, setIsLoadingSelection] = useState(false);
-  const [hasSelection, setHasSelection] = useState(false);
-  const [selectedTextPreview, setSelectedTextPreview] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const ignoreSelectionRef = useRef(false); // 用于临时禁用选择检测
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -70,31 +66,6 @@ export const ChatWindow: React.FC = () => {
       console.error('调整文本框高度时出错:', error);
     }
   }, [inputValue]);
-
-  // 使用 WordEditor 的选择监听器来检测选中文本
-  useEffect(() => {
-    const cleanup = WordEditor.setupSelectionChangedListener((hasSelection, selectedText) => {
-      // 如果设置了忽略标志，则不处理选择变化
-      if (ignoreSelectionRef.current) {
-        return;
-      }
-
-      if (hasSelection && selectedText) {
-        setHasSelection(true);
-        // 显示预览（最多50个字符）
-        const preview = selectedText.length > 50 
-          ? selectedText.substring(0, 50) + '...' 
-          : selectedText;
-        setSelectedTextPreview(preview);
-      } else {
-        setHasSelection(false);
-        setSelectedTextPreview('');
-      }
-    });
-
-    // 清理函数
-    return cleanup;
-  }, []);
 
   const handleSend = async () => {
     if (!inputValue.trim() || isLoading) return;
@@ -158,78 +129,6 @@ export const ChatWindow: React.FC = () => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
-    }
-  };
-
-  const handleAddSelectionToChat = async () => {
-    setIsLoadingSelection(true);
-    setError(null);
-    
-    // 立即隐藏浮动按钮
-    setHasSelection(false);
-    
-    // 暂时禁用选择检测，避免弹窗立即重新出现
-    ignoreSelectionRef.current = true;
-    
-    try {
-      console.log('📋 获取选中的文本...');
-      const selectedText = await WordEditor.getSelectedText();
-      
-      if (!selectedText || !selectedText.trim()) {
-        // 没有选中文本
-        setError('请先在文档中选择要添加的文本');
-        setTimeout(() => setError(null), 3000);
-        // 延迟后重新启用选择检测
-        setTimeout(() => {
-          ignoreSelectionRef.current = false;
-        }, 1000);
-        return;
-      }
-      
-      console.log(`✅ 获取到选中文本: ${selectedText.substring(0, 50)}...`);
-      
-      // 将选中的文本添加到输入框
-      if (inputValue.trim()) {
-        // 如果输入框已有内容，追加选中文本
-        setInputValue((prev) => `${prev}\n\n【选中的文本】\n${selectedText}`);
-      } else {
-        // 如果输入框为空，直接设置为选中文本
-        setInputValue(selectedText);
-      }
-      
-      // 清除文档中的选中状态
-      try {
-        await WordEditor.clearSelection();
-        console.log('✅ 已清除文档中的选中状态');
-      } catch (error) {
-        console.warn('⚠️ 清除选中状态失败:', error);
-        // 即使清除失败也继续执行，不影响主要功能
-      }
-      
-      // 聚焦到输入框
-      setTimeout(() => {
-        textareaRef.current?.focus();
-        // 滚动到底部
-        if (textareaRef.current) {
-          textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
-        }
-      }, 100);
-      
-      // 延迟后重新启用选择检测（给用户时间操作）
-      setTimeout(() => {
-        ignoreSelectionRef.current = false;
-      }, 2000);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '获取选中文本时发生错误';
-      console.error('❌ 获取选中文本失败:', err);
-      setError(errorMessage);
-      setTimeout(() => setError(null), 5000);
-      // 延迟后重新启用选择检测
-      setTimeout(() => {
-        ignoreSelectionRef.current = false;
-      }, 1000);
-    } finally {
-      setIsLoadingSelection(false);
     }
   };
 
@@ -303,41 +202,6 @@ export const ChatWindow: React.FC = () => {
       {error && (
         <div className="error-message">
           {error}
-        </div>
-      )}
-
-      {/* 浮动按钮：当有选中文本时显示，固定在 TaskPane 右下角 */}
-      {hasSelection && (
-        <div className="floating-add-button">
-          <div className="floating-add-button-content">
-            <div className="floating-add-button-header">
-              <span className="floating-add-button-title">检测到选中文本</span>
-              <button
-                className="floating-add-button-close"
-                onClick={() => {
-                  setHasSelection(false);
-                  // 暂时禁用选择检测，避免立即重新显示
-                  ignoreSelectionRef.current = true;
-                  setTimeout(() => {
-                    ignoreSelectionRef.current = false;
-                  }, 1000);
-                }}
-                title="关闭"
-              >
-                ×
-              </button>
-            </div>
-            <div className="floating-add-button-preview">
-              {selectedTextPreview}
-            </div>
-            <button
-              onClick={handleAddSelectionToChat}
-              disabled={isLoading || isLoadingSelection}
-              className="floating-add-button-btn"
-            >
-              {isLoadingSelection ? '添加中...' : '📋 添加到聊天'}
-            </button>
-          </div>
         </div>
       )}
 

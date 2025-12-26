@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any, AsyncGenerator
+from typing import Optional, List, Dict, Any, AsyncGenerator, Tuple
 import httpx
 import logging
 import os
@@ -536,31 +536,103 @@ async def process_request_stream(request: ProcessRequest) -> AsyncGenerator[str,
         # 收集所有内容块
         content_parts: List[str] = []
         last_progress_time = time.time()
+        last_heartbeat_time = time.time()
         chunk_received_count = 0
+        api_call_start_time = time.time()
         
         logger.info("[SSE] 开始调用AI API...")
-        # 调用AI API并流式接收
-        async for chunk_content, chunk_count, content_length, elapsed_time in call_ai_api_with_progress(prompt, api_key, api_url, model_name):
-            chunk_received_count += 1
-            content_parts.append(chunk_content)
+        
+        # 使用asyncio来同时处理AI API流和心跳
+        import asyncio
+        
+        # 创建一个队列来接收AI API数据
+        ai_api_queue: asyncio.Queue[Tuple[str, Optional[str], Optional[int], Optional[int], Optional[float]]] = asyncio.Queue()
+        ai_api_done = False
+        ai_api_error: Optional[Exception] = None
+        
+        async def ai_api_consumer():
+            """消费AI API流式数据"""
+            nonlocal ai_api_done, ai_api_error
+            try:
+                async for chunk_content, chunk_count, content_length, elapsed_time in call_ai_api_with_progress(prompt, api_key, api_url, model_name):
+                    await ai_api_queue.put(('chunk', chunk_content, chunk_count, content_length, elapsed_time))
+                await ai_api_queue.put(('done', None, None, None, None))
+            except Exception as e:
+                ai_api_error = e
+                await ai_api_queue.put(('error', None, None, None, None))
+        
+        # 启动AI API消费者任务（保存任务引用，防止被垃圾回收）
+        ai_api_task = asyncio.create_task(ai_api_consumer())
+        
+        # 循环处理：同时等待AI API数据和发送心跳
+        while not ai_api_done:
             current_time = time.time()
+            elapsed_since_start = current_time - api_call_start_time
             
-            logger.debug(f"[SSE] 收到内容块 #{chunk_received_count}: {len(chunk_content)} 字符, 累计: {content_length} 字符, 耗时: {elapsed_time:.2f} 秒")
-            
-            # 每5秒发送一次进度更新
-            if current_time - last_progress_time >= 5.0:
-                progress_data = {
+            # 检查是否需要发送心跳（每10秒一次，确保在60秒超时前有足够的心跳）
+            if current_time - last_heartbeat_time >= 10.0:
+                heartbeat_data = {
                     'type': 'progress',
-                    'chunk_count': chunk_count,
-                    'content_length': content_length,
-                    'elapsed_time': round(elapsed_time, 2)
+                    'chunk_count': chunk_received_count,
+                    'content_length': sum(len(p) for p in content_parts),
+                    'elapsed_time': round(elapsed_since_start, 2),
+                    'status': 'waiting' if chunk_received_count == 0 else 'processing'
                 }
-                progress_event_str = f"data: {json.dumps(progress_data)}\n\n"
-                logger.info(f"[SSE] 发送进度更新: chunk_count={chunk_count}, content_length={content_length}, elapsed_time={elapsed_time:.2f}秒")
-                logger.debug(f"[SSE] 进度事件内容: {progress_event_str.strip()}")
-                yield progress_event_str
-                logger.info("[SSE] 进度更新已发送")
+                heartbeat_event_str = f"data: {json.dumps(heartbeat_data)}\n\n"
+                logger.info(f"[SSE] 发送心跳/进度更新: chunk_count={chunk_received_count}, content_length={sum(len(p) for p in content_parts)}, elapsed_time={elapsed_since_start:.2f}秒, status={heartbeat_data['status']}")
+                yield heartbeat_event_str
+                logger.info("[SSE] 心跳/进度更新已发送")
+                last_heartbeat_time = current_time
                 last_progress_time = current_time
+            
+            # 尝试从队列获取AI API数据（非阻塞，超时0.5秒）
+            try:
+                event_type, chunk_content, chunk_count, content_length, elapsed_time = await asyncio.wait_for(ai_api_queue.get(), timeout=0.5)
+                
+                if event_type == 'chunk' and chunk_content is not None and chunk_count is not None and content_length is not None and elapsed_time is not None:
+                    chunk_received_count += 1
+                    content_parts.append(chunk_content)
+                    
+                    logger.debug(f"[SSE] 收到内容块 #{chunk_received_count}: {len(chunk_content)} 字符, 累计: {content_length} 字符, 耗时: {elapsed_time:.2f} 秒")
+                    
+                    # 每3秒发送一次进度更新（缩短间隔，更频繁地保持连接活跃）
+                    if current_time - last_progress_time >= 3.0:
+                        progress_data = {
+                            'type': 'progress',
+                            'chunk_count': chunk_count,
+                            'content_length': content_length,
+                            'elapsed_time': round(elapsed_time, 2),
+                            'status': 'processing'
+                        }
+                        progress_event_str = f"data: {json.dumps(progress_data)}\n\n"
+                        logger.info(f"[SSE] 发送进度更新: chunk_count={chunk_count}, content_length={content_length}, elapsed_time={elapsed_time:.2f}秒")
+                        logger.debug(f"[SSE] 进度事件内容: {progress_event_str.strip()}")
+                        yield progress_event_str
+                        logger.info("[SSE] 进度更新已发送")
+                        last_progress_time = current_time
+                        last_heartbeat_time = current_time
+                
+                elif event_type == 'done':
+                    ai_api_done = True
+                    break
+                
+                elif event_type == 'error':
+                    if ai_api_error:
+                        raise ai_api_error
+                    else:
+                        raise Exception("AI API调用出错")
+                        
+            except asyncio.TimeoutError:
+                # 超时是正常的，继续循环等待并发送心跳
+                continue
+        
+        # 确保AI API任务完成（等待任务结束，捕获任何未处理的异常）
+        try:
+            await ai_api_task
+        except Exception as e:
+            logger.error(f"[SSE] AI API任务出错: {e}", exc_info=True)
+            if not ai_api_error:
+                raise
         
         logger.info(f"[SSE] AI API调用完成，共接收 {chunk_received_count} 个内容块")
         
